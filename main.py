@@ -8,7 +8,7 @@ DEFAULT_DATA_FOLDER = r"path\to\your\neuralynx\data"  # <-- Change this to your 
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
-         contact_range: tuple = (1, 5), window_duration: int = 10):
+         contact_range: tuple = (1, 5), window_duration: int = 10, montage: str = 'average'):
     """
     Load Neuralynx data and launch interactive viewer.
     
@@ -21,9 +21,11 @@ def main(data_folder: str, target_fs: int = 128, max_workers: int = 8,
     max_workers : int
         Number of parallel workers for loading (default: 8)
     contact_range : tuple
-        Min and max contact numbers to load (default: (1, 9))
+        Min and max contact numbers to load (default: (1, 5))
     window_duration : int
         Initial viewer window duration in seconds (default: 10)
+    montage : str
+        Montage type: 'raw', 'average', or 'bipolar' (default: 'average')
     """
     # Create loader
     loader = FastNeuralynxLoader()
@@ -48,7 +50,7 @@ def main(data_folder: str, target_fs: int = 128, max_workers: int = 8,
     print(f"Duration: {data.shape[1]/fs:.2f} seconds\n")
 
     # Launch interactive viewer
-    viewer = InteractiveEEGViewer(data, channels, fs, window_duration=window_duration)
+    viewer = InteractiveEEGViewer(data, channels, fs, window_duration=window_duration, montage=montage)
     viewer.show()
 
 
@@ -84,13 +86,20 @@ if __name__ == "__main__":
         "--contact-max",
         type=int,
         default=5,
-        help="Maximum contact number to load (default: 9)"
+        help="Maximum contact number to load (default: 5)"
     )
     parser.add_argument(
         "--window", "-d",
         type=int,
         default=10,
         help="Initial viewer window duration in seconds (default: 10)"
+    )
+    parser.add_argument(
+        "--montage", "-m",
+        type=str,
+        default="average",
+        choices=["raw", "average", "bipolar"],
+        help="Montage type: raw, average, or bipolar (default: average)"
     )
 
     args = parser.parse_args()
@@ -100,5 +109,6 @@ if __name__ == "__main__":
         target_fs=args.target_fs,
         max_workers=args.workers,
         contact_range=(args.contact_min, args.contact_max),
-        window_duration=args.window
+        window_duration=args.window,
+        montage=args.montage
     )
