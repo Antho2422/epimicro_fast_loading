@@ -99,6 +99,7 @@ class FastNeuralynxLoader:
         Rules:
         1. Channel name must contain '_' (e.g., AmT2_7)
         2. Contact number must be between contact_range (default 1-5)
+        3. Channel name must NOT start with 'm' (microelectrode indicator, e.g., mAmT2_1)
         
         Parameters:
         -----------
@@ -111,6 +112,10 @@ class FastNeuralynxLoader:
         
         # Must contain underscore
         if '_' not in channel_name:
+            return False
+        
+        # Exclude microelectrodes: channel name starts with 'm' (e.g., mAmT2_1)
+        if channel_name.startswith('m'):
             return False
         
         # Extract contact number (last part after underscore)
