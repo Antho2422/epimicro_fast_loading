@@ -60,7 +60,3 @@ viewer.show()
 | + / - | Zoom in/out (time) |
 | ↑ / ↓ | Increase/decrease channel spacing |
 | Mouse Scroll | Scroll through time |
-
-## License
-
-MIT
