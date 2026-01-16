@@ -5,7 +5,7 @@ from matplotlib.widgets import Slider
 class InteractiveEEGViewer:
     """Interactive EEG viewer with scroll and zoom capabilities"""
     
-    def __init__(self, data, channel_names, fs, window_duration=10):
+    def __init__(self, data, channel_names, fs, window_duration=10, montage='raw'):
         """
         Initialize interactive viewer
         
@@ -17,19 +17,25 @@ class InteractiveEEGViewer:
             Sampling frequency
         window_duration : float
             Initial window duration in seconds
+        montage : str
+            Montage type: 'raw', 'average', or 'bipolar'
         """
-        self.data = data
+        self.raw_data = data  # Keep original data
         self.channel_names = channel_names
         self.fs = fs
         self.n_channels, self.n_samples = data.shape
         self.total_duration = self.n_samples / fs
+        
+        # Montage settings
+        self.montage = montage
+        self.data = self._apply_montage(data, montage)
         
         # View parameters
         self.window_duration = window_duration
         self.current_time = 0
         self.offset_scale = 5.0
         self.show_all_channels = True
-        self.selected_channels = list(range(self.n_channels))
+        self.selected_channels = list(range(self.data.shape[0]))
         
         # Create figure
         self.fig = plt.figure(figsize=(16, 10))
@@ -57,6 +63,83 @@ class InteractiveEEGViewer:
         # Print controls
         self.print_controls()
     
+    def _apply_montage(self, data, montage):
+        """
+        Apply montage to data
+        
+        Parameters:
+        -----------
+        data : array (n_channels, n_samples)
+        montage : str
+            'raw': no re-referencing
+            'average': subtract average of all channels
+            'bipolar': subtract adjacent channels (same electrode)
+        
+        Returns:
+        --------
+        data : array - re-referenced data
+        """
+        if montage == 'raw':
+            return data
+        
+        elif montage == 'average':
+            # Average reference: subtract mean of all channels at each time point
+            avg = np.mean(data, axis=0, keepdims=True)
+            return data - avg
+        
+        elif montage == 'bipolar':
+            # Bipolar: subtract adjacent contacts on same electrode
+            # Group channels by electrode name
+            return self._compute_bipolar(data)
+        
+        else:
+            print(f"Unknown montage '{montage}', using raw")
+            return data
+    
+    def _compute_bipolar(self, data):
+        """Compute bipolar montage (adjacent contact subtraction)"""
+        from collections import defaultdict
+        
+        # Group channels by electrode name
+        electrode_groups = defaultdict(list)
+        for i, name in enumerate(self.channel_names):
+            if '_' in name:
+                electrode, contact = name.rsplit('_', 1)
+                try:
+                    contact_num = int(contact)
+                    electrode_groups[electrode].append((contact_num, i, name))
+                except ValueError:
+                    pass
+        
+        # Sort each group by contact number and compute bipolar pairs
+        bipolar_data = []
+        bipolar_names = []
+        
+        for electrode, contacts in electrode_groups.items():
+            contacts.sort(key=lambda x: x[0])  # Sort by contact number
+            for j in range(len(contacts) - 1):
+                contact1_num, idx1, name1 = contacts[j]
+                contact2_num, idx2, name2 = contacts[j + 1]
+                
+                # Bipolar = contact1 - contact2
+                bipolar_data.append(data[idx1] - data[idx2])
+                bipolar_names.append(f"{electrode}_{contact1_num}-{contact2_num}")
+        
+        if bipolar_data:
+            self.channel_names = bipolar_names
+            return np.array(bipolar_data)
+        else:
+            print("Could not compute bipolar montage, using raw")
+            return data
+    
+    def set_montage(self, montage):
+        """Change montage and refresh display"""
+        self.montage = montage
+        self.data = self._apply_montage(self.raw_data, montage)
+        self.selected_channels = list(range(self.data.shape[0]))
+        print(f"Montage changed to: {montage}")
+        self.plot()
+    
     def print_controls(self):
         """Print keyboard controls"""
         print("\n" + "="*80)
@@ -77,9 +160,13 @@ class InteractiveEEGViewer:
         print("  r              : Reset view")
         print("  g              : Toggle grid")
         print("")
+        print("Montage:")
+        print("  m              : Cycle montage (raw -> average -> bipolar)")
+        print(f"  Current: {self.montage}")
+        print("")
         print("Info:")
         print(f"  Total duration: {self.total_duration:.2f} seconds")
-        print(f"  Channels: {self.n_channels}")
+        print(f"  Channels: {self.data.shape[0]}")
         print(f"  Sampling rate: {self.fs} Hz")
         print("="*80 + "\n")
     
@@ -125,7 +212,7 @@ class InteractiveEEGViewer:
         self.ax.set_xlabel('Time (s)', fontsize=12)
         self.ax.set_ylabel('Channel', fontsize=12)
         
-        title = f'EEG Viewer - {n_plot_channels} channels @ {self.fs} Hz | '
+        title = f'EEG Viewer [{self.montage.upper()}] - {n_plot_channels} channels @ {self.fs} Hz | '
         title += f'Window: {self.current_time:.1f} - {self.current_time + self.window_duration:.1f} s'
         self.ax.set_title(title, fontsize=12)
         
@@ -201,6 +288,14 @@ class InteractiveEEGViewer:
         elif event.key == 'g':
             # Toggle grid
             self.ax.grid(not self.ax.xaxis._gridOnMajor)
+        
+        elif event.key == 'm':
+            # Cycle montage: raw -> average -> bipolar -> raw
+            montages = ['raw', 'average', 'bipolar']
+            current_idx = montages.index(self.montage) if self.montage in montages else 0
+            next_idx = (current_idx + 1) % len(montages)
+            self.set_montage(montages[next_idx])
+            return  # set_montage already calls plot()
         
         else:
             return
