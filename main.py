@@ -8,7 +8,7 @@ DEFAULT_DATA_FOLDER = r"path\to\your\neuralynx\data"  # <-- Change this to your 
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
-         contact_range: tuple = (1, 9), window_duration: int = 10):
+         contact_range: tuple = (1, 5), window_duration: int = 10):
     """
     Load Neuralynx data and launch interactive viewer.
     
