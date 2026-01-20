@@ -8,7 +8,7 @@ DEFAULT_DATA_FOLDER = r"path\to\your\neuralynx\data"  # <-- Change this to your 
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
-         contact_range: tuple = (1, 5), window_duration: int = 10, montage: str = 'average'):
+         contact_range: tuple = (1, 5), window_duration: int = 30, montage: str = 'average'):
     """
     Load Neuralynx data and launch interactive viewer.
     
@@ -23,7 +23,7 @@ def main(data_folder: str, target_fs: int = 128, max_workers: int = 8,
     contact_range : tuple
         Min and max contact numbers to load (default: (1, 5))
     window_duration : int
-        Initial viewer window duration in seconds (default: 10)
+        Initial viewer window duration in seconds (default: 30)
     montage : str
         Montage type: 'raw', 'average', or 'bipolar' (default: 'average')
     """
@@ -91,8 +91,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--window", "-d",
         type=int,
-        default=10,
-        help="Initial viewer window duration in seconds (default: 10)"
+        default=30,
+        help="Initial viewer window duration in seconds (default: 30s)"
     )
     parser.add_argument(
         "--montage", "-m",
