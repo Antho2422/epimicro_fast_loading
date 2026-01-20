@@ -5,7 +5,7 @@ from matplotlib.widgets import Slider
 class InteractiveEEGViewer:
     """Interactive EEG viewer with scroll and zoom capabilities"""
     
-    def __init__(self, data, channel_names, fs, window_duration=10, montage='raw'):
+    def __init__(self, data, channel_names, fs, window_duration=30, montage='raw'):
         """
         Initialize interactive viewer
         
@@ -21,7 +21,8 @@ class InteractiveEEGViewer:
             Montage type: 'raw', 'average', or 'bipolar'
         """
         self.raw_data = data  # Keep original data
-        self.channel_names = channel_names
+        self.original_channel_names = list(channel_names)  # Keep original channel names
+        self.channel_names = list(channel_names)  # Current display names (may change with montage)
         self.fs = fs
         self.n_channels, self.n_samples = data.shape
         self.total_duration = self.n_samples / fs
@@ -34,22 +35,23 @@ class InteractiveEEGViewer:
         self.window_duration = window_duration
         self.current_time = 0
         self.offset_scale = 5.0
+        self.gain = 1.0  # Signal amplitude gain
         self.show_all_channels = True
         self.selected_channels = list(range(self.data.shape[0]))
         
-        # Create figure
-        self.fig = plt.figure(figsize=(16, 10))
+        # Create figure - compact size
+        self.fig = plt.figure(figsize=(14, 8))
         
-        # Main plot area
+        # Main plot area - maximize data display space
         self.ax = plt.subplot(111)
-        plt.subplots_adjust(bottom=0.15, left=0.1, right=0.95)
+        plt.subplots_adjust(bottom=0.08, left=0.08, right=0.98, top=0.95)
         
         # Connect keyboard and scroll events
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
         self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
         
-        # Create slider for time navigation
-        ax_slider = plt.axes([0.1, 0.05, 0.8, 0.03])
+        # Create slider for time navigation - thinner and closer to plot
+        ax_slider = plt.axes([0.08, 0.02, 0.88, 0.02])
         self.time_slider = Slider(
             ax_slider, 'Time (s)', 
             0, max(0, self.total_duration - self.window_duration),
@@ -97,12 +99,16 @@ class InteractiveEEGViewer:
             return data
     
     def _compute_bipolar(self, data):
-        """Compute bipolar montage (adjacent contact subtraction)"""
+        """Compute bipolar montage (adjacent contact subtraction)
+        
+        For each electrode, compute the difference between adjacent contacts.
+        The last contact of each electrode is removed (no pair to subtract).
+        """
         from collections import defaultdict
         
-        # Group channels by electrode name
+        # Group channels by electrode name using ORIGINAL channel names
         electrode_groups = defaultdict(list)
-        for i, name in enumerate(self.channel_names):
+        for i, name in enumerate(self.original_channel_names):
             if '_' in name:
                 electrode, contact = name.rsplit('_', 1)
                 try:
@@ -115,13 +121,15 @@ class InteractiveEEGViewer:
         bipolar_data = []
         bipolar_names = []
         
-        for electrode, contacts in electrode_groups.items():
+        for electrode, contacts in sorted(electrode_groups.items()):
             contacts.sort(key=lambda x: x[0])  # Sort by contact number
+            # Create pairs: contact1-contact2, contact2-contact3, etc.
+            # Last contact is excluded (no next contact to subtract)
             for j in range(len(contacts) - 1):
                 contact1_num, idx1, name1 = contacts[j]
                 contact2_num, idx2, name2 = contacts[j + 1]
                 
-                # Bipolar = contact1 - contact2
+                # Bipolar = contact_i - contact_(i+1)
                 bipolar_data.append(data[idx1] - data[idx2])
                 bipolar_names.append(f"{electrode}_{contact1_num}-{contact2_num}")
         
@@ -130,10 +138,13 @@ class InteractiveEEGViewer:
             return np.array(bipolar_data)
         else:
             print("Could not compute bipolar montage, using raw")
+            self.channel_names = list(self.original_channel_names)
             return data
     
     def set_montage(self, montage):
         """Change montage and refresh display"""
+        # Restore original channel names before applying new montage
+        self.channel_names = list(self.original_channel_names)
         self.montage = montage
         self.data = self._apply_montage(self.raw_data, montage)
         self.selected_channels = list(range(self.data.shape[0]))
@@ -146,7 +157,7 @@ class InteractiveEEGViewer:
         print("INTERACTIVE EEG VIEWER - CONTROLS")
         print("="*80)
         print("Navigation:")
-        print("  → / ←          : Move forward/backward (1 second)")
+        print("  → / ←          : Move forward/backward (5 seconds)")
         print("  Page Up/Down   : Move forward/backward (1 window)")
         print("  Home / End     : Go to start/end")
         print("  Mouse Scroll   : Scroll through time")
@@ -154,6 +165,7 @@ class InteractiveEEGViewer:
         print("Zoom:")
         print("  + / -          : Zoom in/out (time)")
         print("  ↑ / ↓          : Increase/decrease channel spacing")
+        print("  ] / [          : Increase/decrease signal gain")
         print("")
         print("Display:")
         print("  a              : Toggle auto-scale")
@@ -201,25 +213,25 @@ class InteractiveEEGViewer:
         for i, ch_idx in enumerate(self.selected_channels):
             signal_data = data_to_plot[i]
             
-            # Normalize
+            # Normalize and apply gain
             if signal_data.std() > 0:
-                signal_data = signal_data / signal_data.std()
+                signal_data = signal_data / signal_data.std() * self.gain
             
             self.ax.plot(time, signal_data + offsets[i], 
                         linewidth=0.5, color='black', alpha=0.8)
         
-        # Labels and formatting
-        self.ax.set_xlabel('Time (s)', fontsize=12)
-        self.ax.set_ylabel('Channel', fontsize=12)
+        # Labels and formatting - compact styling
+        self.ax.set_xlabel('Time (s)', fontsize=9)
+        self.ax.set_ylabel('Channel', fontsize=9)
         
-        title = f'EEG Viewer [{self.montage.upper()}] - {n_plot_channels} channels @ {self.fs} Hz | '
-        title += f'Window: {self.current_time:.1f} - {self.current_time + self.window_duration:.1f} s'
-        self.ax.set_title(title, fontsize=12)
+        title = f'[{self.montage.upper()}] {n_plot_channels} ch @ {self.fs} Hz | '
+        title += f'{self.current_time:.1f}-{self.current_time + self.window_duration:.1f}s | Gain: {self.gain:.1f}x'
+        self.ax.set_title(title, fontsize=10)
         
-        # Set y-ticks
+        # Set y-ticks - smaller font for channel names
         plot_channel_names = [self.channel_names[i] for i in self.selected_channels]
         self.ax.set_yticks(offsets)
-        self.ax.set_yticklabels(plot_channel_names, fontsize=8)
+        self.ax.set_yticklabels(plot_channel_names, fontsize=7)
         
         self.ax.set_xlim([self.current_time, self.current_time + self.window_duration])
         self.ax.grid(True, alpha=0.3, axis='x')
@@ -229,15 +241,15 @@ class InteractiveEEGViewer:
     def on_key(self, event):
         """Handle keyboard events"""
         if event.key == 'right':
-            # Move forward 1 second
+            # Move forward 5 seconds
             self.current_time = min(
-                self.current_time + 1, 
+                self.current_time + 5, 
                 self.total_duration - self.window_duration
             )
         
         elif event.key == 'left':
-            # Move backward 1 second
-            self.current_time = max(self.current_time - 1, 0)
+            # Move backward 5 seconds
+            self.current_time = max(self.current_time - 5, 0)
         
         elif event.key == 'pagedown':
             # Move forward 1 window
@@ -279,11 +291,22 @@ class InteractiveEEGViewer:
             # Decrease channel spacing
             self.offset_scale /= 1.2
         
+        elif event.key == ']':
+            # Increase gain
+            self.gain *= 1.5
+            print(f"Gain: {self.gain:.2f}x")
+        
+        elif event.key == '[':
+            # Decrease gain
+            self.gain /= 1.5
+            print(f"Gain: {self.gain:.2f}x")
+        
         elif event.key == 'r':
             # Reset view
             self.current_time = 0
             self.window_duration = 10
             self.offset_scale = 5.0
+            self.gain = 1.0
         
         elif event.key == 'g':
             # Toggle grid
