@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+from scipy.signal import spectrogram, decimate
 
 class InteractiveEEGViewer:
     """Interactive EEG viewer with scroll and zoom capabilities"""
@@ -45,22 +46,30 @@ class InteractiveEEGViewer:
         # Create figure - compact size
         self.fig = plt.figure(figsize=(14, 8))
         
-        # Main plot area - maximize data display space
+        # Main plot area - maximize data display space (leave room for TF map at bottom)
         self.ax = plt.subplot(111)
-        plt.subplots_adjust(bottom=0.08, left=0.08, right=0.98, top=0.95)
+        plt.subplots_adjust(bottom=0.15, left=0.08, right=0.98, top=0.95)
         
         # Connect keyboard and scroll events
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
         self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
         
-        # Create slider for time navigation - thinner and closer to plot
-        ax_slider = plt.axes([0.08, 0.02, 0.88, 0.02])
+        # Create slider for time navigation - moved up to make room for TF map
+        ax_slider = plt.axes([0.08, 0.10, 0.88, 0.02])
         self.time_slider = Slider(
             ax_slider, 'Time (s)', 
             0, max(0, self.total_duration - self.window_duration),
             valinit=0, valstep=0.1
         )
         self.time_slider.on_changed(self.on_slider_change)
+        
+        # Create time-frequency overview axes (below slider)
+        self.ax_tf = self.fig.add_axes([0.08, 0.02, 0.88, 0.06])
+        self.window_indicator = None
+        
+        # Precompute and plot time-frequency overview
+        self._compute_overview_spectrogram()
+        self._plot_overview_spectrogram()
         
         # Initial plot
         self.plot()
@@ -154,6 +163,83 @@ class InteractiveEEGViewer:
         print(f"Montage changed to: {montage}")
         self.plot()
     
+    def _compute_overview_spectrogram(self):
+        """Precompute time-frequency map for overview display (average of all channels, 1-100 Hz)"""
+        print("Computing time-frequency overview...")
+        
+        # Average all channels for overview
+        overview_signal = np.mean(self.raw_data, axis=0)
+        
+        # Downsample if fs > 512 Hz for faster computation
+        effective_fs = self.fs
+        if self.fs > 512:
+            factor = int(self.fs // 256)
+            overview_signal = decimate(overview_signal, factor)
+            effective_fs = self.fs / factor
+        
+        # Compute spectrogram with coarse time resolution for overview
+        # Use 2s windows with 50% overlap for a good balance of speed and resolution
+        nperseg = int(effective_fs * 2)
+        noverlap = int(effective_fs * 1)
+        
+        f, t, Sxx = spectrogram(
+            overview_signal,
+            fs=effective_fs,
+            nperseg=nperseg,
+            noverlap=noverlap,
+            nfft=max(256, nperseg),
+        )
+        
+        # Keep only 1-100 Hz (EEG-relevant frequencies)
+        freq_mask = (f >= 1) & (f <= 100)
+        self.overview_freqs = f[freq_mask]
+        self.overview_times = t
+        self.overview_Sxx = Sxx[freq_mask, :]
+        
+        print(f"Time-frequency overview computed: {len(self.overview_freqs)} freq bins, {len(self.overview_times)} time bins")
+    
+    def _plot_overview_spectrogram(self):
+        """Display the precomputed spectrogram overview with auto-scaled colormap"""
+        self.ax_tf.clear()
+        
+        # Convert to dB scale for better visualization
+        Sxx_db = 10 * np.log10(self.overview_Sxx + 1e-10)
+        
+        # Auto-scale: use percentiles to avoid outliers dominating the colormap
+        vmin = np.percentile(Sxx_db, 5)
+        vmax = np.percentile(Sxx_db, 95)
+        
+        self.tf_image = self.ax_tf.imshow(
+            Sxx_db,
+            aspect='auto',
+            origin='lower',
+            extent=[0, self.total_duration, 
+                    self.overview_freqs[0], self.overview_freqs[-1]],
+            cmap='viridis',
+            interpolation='bilinear',
+            vmin=vmin,
+            vmax=vmax
+        )
+        
+        # Add current window indicator
+        self._update_window_indicator()
+        
+        self.ax_tf.set_ylabel('Hz', fontsize=7)
+        self.ax_tf.set_xlim([0, self.total_duration])
+        self.ax_tf.tick_params(labelsize=6)
+        # Remove x-axis labels (redundant with slider)
+        self.ax_tf.set_xticklabels([])
+    
+    def _update_window_indicator(self):
+        """Update the position indicator on the time-frequency map"""
+        if self.window_indicator is not None:
+            self.window_indicator.remove()
+        self.window_indicator = self.ax_tf.axvspan(
+            self.current_time, 
+            self.current_time + self.window_duration,
+            color='red', alpha=0.3, linewidth=0
+        )
+    
     def print_controls(self):
         """Print keyboard controls"""
         print("\n" + "="*80)
@@ -243,6 +329,9 @@ class InteractiveEEGViewer:
         
         self.ax.set_xlim([self.current_time, self.current_time + self.window_duration])
         self.ax.grid(True, alpha=0.3, axis='x')
+        
+        # Update window indicator on time-frequency map
+        self._update_window_indicator()
         
         self.fig.canvas.draw_idle()
     
