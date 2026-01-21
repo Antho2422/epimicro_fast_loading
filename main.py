@@ -1,10 +1,11 @@
 import argparse
 import time
+import os
 from core import FastNeuralynxLoader
 from visualization import InteractiveEEGViewer
 
 # Default data folder (can be overridden via command line argument)
-DEFAULT_DATA_FOLDER = r"path\to\your\neuralynx\data"  # <-- Change this to your default path
+DEFAULT_DATA_FOLDER = r"\\path\to\your\data"  # <-- Change this to your default path
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
@@ -49,8 +50,11 @@ def main(data_folder: str, target_fs: int = 128, max_workers: int = 8,
     print(f"Sampling rate: {fs} Hz")
     print(f"Duration: {data.shape[1]/fs:.2f} seconds\n")
 
+    # Extract session name from data folder
+    session_name = os.path.basename(os.path.normpath(data_folder))
+
     # Launch interactive viewer
-    viewer = InteractiveEEGViewer(data, channels, fs, window_duration=window_duration, montage=montage)
+    viewer = InteractiveEEGViewer(data, channels, fs, window_duration=window_duration, montage=montage, session_name=session_name)
     viewer.show()
 
 
