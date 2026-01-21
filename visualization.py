@@ -5,7 +5,7 @@ from matplotlib.widgets import Slider
 class InteractiveEEGViewer:
     """Interactive EEG viewer with scroll and zoom capabilities"""
     
-    def __init__(self, data, channel_names, fs, window_duration=30, montage='raw'):
+    def __init__(self, data, channel_names, fs, window_duration=30, montage='raw', session_name=None):
         """
         Initialize interactive viewer
         
@@ -19,7 +19,10 @@ class InteractiveEEGViewer:
             Initial window duration in seconds
         montage : str
             Montage type: 'raw', 'average', or 'bipolar'
+        session_name : str, optional
+            Name of the session to display in the title
         """
+        self.session_name = session_name if session_name else ''
         self.raw_data = data  # Keep original data
         self.original_channel_names = list(channel_names)  # Keep original channel names
         self.channel_names = list(channel_names)  # Current display names (may change with montage)
@@ -224,9 +227,14 @@ class InteractiveEEGViewer:
         self.ax.set_xlabel('Time (s)', fontsize=9)
         self.ax.set_ylabel('Channel', fontsize=9)
         
-        title = f'[{self.montage.upper()}] {n_plot_channels} ch @ {self.fs} Hz | '
-        title += f'{self.current_time:.1f}-{self.current_time + self.window_duration:.1f}s | Gain: {self.gain:.1f}x'
-        self.ax.set_title(title, fontsize=10)
+        # Session name as main title (suptitle)
+        if self.session_name:
+            self.fig.suptitle(self.session_name, fontsize=11, fontweight='bold')
+        
+        # Plot info as subtitle
+        subtitle = f'[{self.montage.upper()}] {n_plot_channels} ch @ {self.fs} Hz | '
+        subtitle += f'{self.current_time:.1f}-{self.current_time + self.window_duration:.1f}s | Gain: {self.gain:.1f}x'
+        self.ax.set_title(subtitle, fontsize=9)
         
         # Set y-ticks - smaller font for channel names
         plot_channel_names = [self.channel_names[i] for i in self.selected_channels]
