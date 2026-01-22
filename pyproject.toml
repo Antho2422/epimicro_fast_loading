@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epimicro-fast-loading"
+version = "0.1.0"
+description = "A fast Neuralynx (.ncs) file loader optimized for EEG/iEEG data visualization"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Antho2422"}
+]
+keywords = ["neuralynx", "ncs", "eeg", "ieeg", "visualization", "neuroscience"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "numpy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+]
+
+[project.urls]
+Homepage = "https://github.com/Antho2422/epimicro_fast_loading"
+Repository = "https://github.com/Antho2422/epimicro_fast_loading"
+Issues = "https://github.com/Antho2422/epimicro_fast_loading/issues"
+
+[project.scripts]
+epimicro-viewer = "main:main"
+
+[tool.setuptools]
+py-modules = ["core", "main", "utils", "visualization"]
