@@ -29,6 +29,8 @@ classifiers = [
 dependencies = [
     "numpy",
     "matplotlib",
+    "scipy",
+    "PyQt5",
 ]
 
 [project.optional-dependencies]

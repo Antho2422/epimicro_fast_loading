@@ -33,37 +33,43 @@ class FastNeuralynxLoader:
         with open(filepath, 'rb') as f:
             header = f.read(16384).decode('latin-1', errors='ignore')
             
-        # Extract sampling rate from header
+        # Extract sampling rate and ADBitVolts from header
         original_fs = 4096  # Default for macroelectrodes
+        # Default ADBitVolts: 6.1035e-8 V/bit (typical Neuralynx macro)
+        adbits_volts = 0.000000061035
         for line in header.split('\r\n'):
             if '-SamplingFrequency' in line:
                 try:
                     original_fs = int(line.split()[-1])
-                except:
+                except Exception:
                     pass
-                break
-        
+            elif '-ADBitVolts' in line:
+                try:
+                    adbits_volts = float(line.split()[-1])
+                except Exception:
+                    pass
+
         # Calculate number of records
         n_records = len(raw_data) // 1044
-        
+
         if n_records == 0:
             return np.array([]), original_fs, target_fs
-        
+
         # Pre-allocate array
         n_samples = n_records * 512
         data = np.empty(n_samples, dtype=np.int16)
-        
+
         # Fast extraction: skip record headers, extract only samples
         for i in range(n_records):
             offset = i * 1044 + 20  # Skip 20-byte record header
             # Extract 512 samples (1024 bytes)
             data[i*512:(i+1)*512] = np.frombuffer(
-                raw_data[offset:offset+1024], 
+                raw_data[offset:offset+1024],
                 dtype=np.int16
             )
-        
-        # Convert to microvolts (typical Neuralynx ADC conversion)
-        data = data.astype(np.float32) * 0.061035  # Typical ADBitVolts value
+
+        # Convert to microvolts using actual header ADBitVolts (V/bit → µV)
+        data = data.astype(np.float32) * (adbits_volts * 1e6)
         
         # Downsample
         if decimate_factor is None:

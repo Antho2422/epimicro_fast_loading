@@ -5,7 +5,7 @@ from core import FastNeuralynxLoader
 from visualization import InteractiveEEGViewer
 
 # Default data folder (can be overridden via command line argument)
-DEFAULT_DATA_FOLDER = r"\\path\to\your\data"  # <-- Change this to your default path
+DEFAULT_DATA_FOLDER = r"\\iss\epimicro\patients\raw\pat_02660_1136\eeg\02660_2018-11-21_07-25"  # <-- Change this to your default path
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
