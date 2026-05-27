@@ -5,7 +5,7 @@ from core import FastNeuralynxLoader
 from visualization import InteractiveEEGViewer
 
 # Default data folder (can be overridden via command line argument)
-DEFAULT_DATA_FOLDER = r"\\path\to\your\data"  # <-- Change this to your default path
+DEFAULT_DATA_FOLDER = r"\\iss\epimicro\patients\raw\pat_02660_1136\eeg\02660_2018-11-16_07-41"  # <-- Change this to your default path
 
 
 def main(data_folder: str, target_fs: int = 128, max_workers: int = 8, 
@@ -26,7 +26,8 @@ def main(data_folder: str, target_fs: int = 128, max_workers: int = 8,
     window_duration : int
         Initial viewer window duration in seconds (default: 30)
     montage : str
-        Montage type: 'raw', 'average', or 'bipolar' (default: 'average')
+        Montage type: 'raw', 'average', 'bipolar', or 'cmr'
+        (default: 'average')
     """
     # Create loader
     loader = FastNeuralynxLoader()
@@ -102,8 +103,8 @@ if __name__ == "__main__":
         "--montage", "-m",
         type=str,
         default="average",
-        choices=["raw", "average", "bipolar"],
-        help="Montage type: raw, average, or bipolar (default: average)"
+        choices=["raw", "average", "bipolar", "cmr"],
+        help="Montage type: raw, average, bipolar, or cmr (default: average)"
     )
 
     args = parser.parse_args()

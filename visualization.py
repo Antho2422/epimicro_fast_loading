@@ -6,10 +6,11 @@ from scipy.signal import spectrogram, decimate
 class InteractiveEEGViewer:
     """Interactive EEG viewer with scroll and zoom capabilities"""
     
-    def __init__(self, data, channel_names, fs, window_duration=30, montage='raw', session_name=None):
+    def __init__(self, data, channel_names, fs, window_duration=30, montage='raw',
+                 session_name=None, cmr_contact_range=(1, 8)):
         """
         Initialize interactive viewer
-        
+
         Parameters:
         -----------
         data : array (n_channels, n_samples)
@@ -19,11 +20,17 @@ class InteractiveEEGViewer:
         window_duration : float
             Initial window duration in seconds
         montage : str
-            Montage type: 'raw', 'average', or 'bipolar'
+            Montage type: 'raw', 'average', 'bipolar', or 'cmr'
         session_name : str, optional
             Name of the session to display in the title
+        cmr_contact_range : tuple of int
+            (min_contact, max_contact) contact numbers used to build the
+            common median reference (default (1, 8)). Only macroelectrode
+            contacts within this range contribute to the median.
         """
         self.session_name = session_name if session_name else ''
+        # Contact range (inclusive) used to build the common median reference
+        self.cmr_contact_range = cmr_contact_range
         self.raw_data = data  # Keep original data
         self.original_channel_names = list(channel_names)  # Keep original channel names
         self.channel_names = list(channel_names)  # Current display names (may change with montage)
@@ -88,27 +95,82 @@ class InteractiveEEGViewer:
             'raw': no re-referencing
             'average': subtract average of all channels
             'bipolar': subtract adjacent channels (same electrode)
-        
+            'cmr': subtract common median of macroelectrode contacts 1-8
+
         Returns:
         --------
         data : array - re-referenced data
         """
         if montage == 'raw':
             return data
-        
+
         elif montage == 'average':
             # Average reference: subtract mean of all channels at each time point
             avg = np.mean(data, axis=0, keepdims=True)
             return data - avg
-        
+
         elif montage == 'bipolar':
             # Bipolar: subtract adjacent contacts on same electrode
             # Group channels by electrode name
             return self._compute_bipolar(data)
-        
+
+        elif montage == 'cmr':
+            # Common median reference: subtract the median of selected
+            # macroelectrode contacts at each time point
+            return self._compute_cmr(data)
+
         else:
             print(f"Unknown montage '{montage}', using raw")
             return data
+
+    def _compute_cmr(self, data):
+        """Compute common median reference (CMR) montage.
+
+        The common median is computed at each time point from the
+        macroelectrode contacts whose contact number falls within
+        ``self.cmr_contact_range`` (default 1-8). This reference is then
+        subtracted from every channel.
+
+        Microelectrodes are already excluded upstream (at load time), so
+        only macroelectrode contacts are present here. Channel names are
+        left unchanged because CMR does not alter the channel set.
+
+        Parameters:
+        -----------
+        data : array (n_channels, n_samples)
+
+        Returns:
+        --------
+        data : array (n_channels, n_samples) - CMR re-referenced data
+        """
+        min_contact, max_contact = self.cmr_contact_range
+
+        # Select indices of channels whose contact number is within range,
+        # using the ORIGINAL channel names (e.g. "AmT2_7" -> contact 7).
+        reference_indices = []
+        for i, name in enumerate(self.original_channel_names):
+            if '_' not in name:
+                continue
+            _, contact = name.rsplit('_', 1)
+            try:
+                contact_num = int(contact)
+            except ValueError:
+                continue
+            if min_contact <= contact_num <= max_contact:
+                reference_indices.append(i)
+
+        # Edge case: no contact in range -> cannot build a reference
+        if not reference_indices:
+            print(
+                f"No contacts in range {min_contact}-{max_contact} for CMR; "
+                "using raw"
+            )
+            return data
+
+        # Common median across the selected contacts at each time point
+        common_median = np.median(data[reference_indices], axis=0,
+                                  keepdims=True)
+        return data - common_median
     
     def _compute_bipolar(self, data):
         """Compute bipolar montage (adjacent contact subtraction)
@@ -262,7 +324,7 @@ class InteractiveEEGViewer:
         print("  g              : Toggle grid")
         print("")
         print("Montage:")
-        print("  m              : Cycle montage (raw -> average -> bipolar)")
+        print("  m              : Cycle montage (raw -> average -> bipolar -> cmr)")
         print(f"  Current: {self.montage}")
         print("")
         print("Info:")
@@ -410,8 +472,8 @@ class InteractiveEEGViewer:
             self.ax.grid(not self.ax.xaxis._gridOnMajor)
         
         elif event.key == 'm':
-            # Cycle montage: raw -> average -> bipolar -> raw
-            montages = ['raw', 'average', 'bipolar']
+            # Cycle montage: raw -> average -> bipolar -> cmr -> raw
+            montages = ['raw', 'average', 'bipolar', 'cmr']
             current_idx = montages.index(self.montage) if self.montage in montages else 0
             next_idx = (current_idx + 1) % len(montages)
             self.set_montage(montages[next_idx])
