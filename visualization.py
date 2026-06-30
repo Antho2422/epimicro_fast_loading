@@ -41,6 +41,10 @@ class InteractiveEEGViewer:
         # Montage settings
         self.montage = montage
         self.data = self._apply_montage(data, montage)
+        # Fixed per-channel normalization scale (std over the whole
+        # recording). Computed once so the displayed amplitude stays
+        # constant across windows instead of adapting to each window.
+        self._compute_channel_scales()
         
         # View parameters
         self.window_duration = window_duration
@@ -48,7 +52,18 @@ class InteractiveEEGViewer:
         self.offset_scale = 5.0
         self.gain = 1.0  # Signal amplitude gain
         self.show_all_channels = True
+        # Number of electrodes (channels) shown at once and index of the
+        # first visible one. Used to "see more or fewer electrodes" and to
+        # scroll the visible channel window up/down.
+        self.n_visible_channels = self.data.shape[0]
+        self.first_channel = 0
         self.selected_channels = list(range(self.data.shape[0]))
+
+        # Click marker: a red dashed vertical line placed where the user
+        # clicks on the signal plot. ``marker_time`` is in seconds (None when
+        # never placed) and ``marker_visible`` toggles it off/on.
+        self.marker_time = None
+        self.marker_visible = True
         
         # Create figure - compact size
         self.fig = plt.figure(figsize=(14, 8))
@@ -60,6 +75,7 @@ class InteractiveEEGViewer:
         # Connect keyboard and scroll events
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
         self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
         
         # Create slider for time navigation - moved up to make room for TF map
         ax_slider = plt.axes([0.08, 0.10, 0.88, 0.02])
@@ -215,13 +231,46 @@ class InteractiveEEGViewer:
             self.channel_names = list(self.original_channel_names)
             return data
     
+    def _compute_channel_scales(self):
+        """Compute a fixed normalization scale per channel.
+
+        Uses the standard deviation of each channel over the entire
+        recording. These scales are used in :meth:`plot` so the signal
+        amplitude is consistent across all time windows (it no longer
+        adapts to the local content of the currently displayed window).
+        Channels with zero variance get a scale of 1.0 to avoid division
+        by zero.
+        """
+        stds = self.data.std(axis=1)
+        stds[stds == 0] = 1.0
+        self.channel_scales = stds
+
+    def _update_selected_channels(self):
+        """Recompute the list of visible channels.
+
+        Clamps ``n_visible_channels`` to [1, n_channels] and ``first_channel``
+        so the visible window always stays inside the available channels.
+        """
+        total = self.data.shape[0]
+        n_vis = max(1, min(self.n_visible_channels, total))
+        self.n_visible_channels = n_vis
+        first = max(0, min(self.first_channel, total - n_vis))
+        self.first_channel = first
+        self.selected_channels = list(range(first, first + n_vis))
+
     def set_montage(self, montage):
         """Change montage and refresh display"""
         # Restore original channel names before applying new montage
         self.channel_names = list(self.original_channel_names)
         self.montage = montage
         self.data = self._apply_montage(self.raw_data, montage)
-        self.selected_channels = list(range(self.data.shape[0]))
+        # Recompute fixed per-channel scales for the new montage data
+        self._compute_channel_scales()
+        # Reset the visible channel window to show all channels of the new
+        # montage (the channel set may differ, e.g. for bipolar).
+        self.n_visible_channels = self.data.shape[0]
+        self.first_channel = 0
+        self._update_selected_channels()
         print(f"Montage changed to: {montage}")
         self.plot()
     
@@ -314,9 +363,17 @@ class InteractiveEEGViewer:
         print("  Mouse Scroll   : Scroll through time")
         print("")
         print("Zoom:")
-        print("  + / -          : Zoom in/out (time)")
+        print("  + / -          : Zoom in/out (time range)")
         print("  ↑ / ↓          : Increase/decrease channel spacing")
         print("  ] / [          : Increase/decrease signal gain")
+        print("")
+        print("Electrodes:")
+        print("  p / o          : Show more/fewer electrodes")
+        print("  Shift+↑ / ↓    : Scroll through electrodes")
+        print("")
+        print("Marker:")
+        print("  Left click     : Place red dashed marker line")
+        print("  v              : Hide/show the marker")
         print("")
         print("Display:")
         print("  a              : Toggle auto-scale")
@@ -363,12 +420,12 @@ class InteractiveEEGViewer:
         # Plot each channel
         for i, ch_idx in enumerate(self.selected_channels):
             signal_data = data_to_plot[i]
-            
-            # Normalize and apply gain
-            if signal_data.std() > 0:
-                signal_data = signal_data / signal_data.std() * self.gain
-            
-            self.ax.plot(time, signal_data + offsets[i], 
+
+            # Normalize by the fixed per-channel scale (constant across
+            # windows) and apply gain
+            signal_data = signal_data / self.channel_scales[ch_idx] * self.gain
+
+            self.ax.plot(time, signal_data + offsets[i],
                         linewidth=0.5, color='black', alpha=0.8)
         
         # Labels and formatting - compact styling
@@ -391,7 +448,18 @@ class InteractiveEEGViewer:
         
         self.ax.set_xlim([self.current_time, self.current_time + self.window_duration])
         self.ax.grid(True, alpha=0.3, axis='x')
-        
+
+        # Draw the red dashed click marker (only when visible and inside the
+        # current time window). The axes are cleared each plot, so the line is
+        # re-created here from the stored marker time.
+        if self.marker_visible and self.marker_time is not None:
+            if self.current_time <= self.marker_time <= \
+                    self.current_time + self.window_duration:
+                self.ax.axvline(
+                    self.marker_time, color='red', linestyle='--',
+                    linewidth=1.2, alpha=0.9
+                )
+
         # Update window indicator on time-frequency map
         self._update_window_indicator()
         
@@ -449,6 +517,36 @@ class InteractiveEEGViewer:
         elif event.key == 'down':
             # Decrease channel spacing
             self.offset_scale /= 1.2
+
+        elif event.key == 'p':
+            # Show more electrodes (enlarge the visible channel window)
+            step = max(1, round(self.n_visible_channels * 0.25))
+            self.n_visible_channels += step
+            self._update_selected_channels()
+            print(f"Showing {self.n_visible_channels} electrodes")
+
+        elif event.key == 'o':
+            # Show fewer electrodes (shrink the visible channel window)
+            step = max(1, round(self.n_visible_channels * 0.25))
+            self.n_visible_channels -= step
+            self._update_selected_channels()
+            print(f"Showing {self.n_visible_channels} electrodes")
+
+        elif event.key == 'shift+up':
+            # Scroll the visible channel window towards the first channels
+            self.first_channel -= max(1, self.n_visible_channels // 2)
+            self._update_selected_channels()
+
+        elif event.key == 'shift+down':
+            # Scroll the visible channel window towards the last channels
+            self.first_channel += max(1, self.n_visible_channels // 2)
+            self._update_selected_channels()
+
+        elif event.key == 'v':
+            # Toggle the red dashed click marker off/on (remove / put back)
+            self.marker_visible = not self.marker_visible
+            state = 'shown' if self.marker_visible else 'hidden'
+            print(f"Click marker {state}")
         
         elif event.key == ']':
             # Increase gain
@@ -466,6 +564,10 @@ class InteractiveEEGViewer:
             self.window_duration = 10
             self.offset_scale = 5.0
             self.gain = 1.0
+            # Reset the visible electrode window to show all channels
+            self.n_visible_channels = self.data.shape[0]
+            self.first_channel = 0
+            self._update_selected_channels()
         
         elif event.key == 'g':
             # Toggle grid
@@ -502,6 +604,25 @@ class InteractiveEEGViewer:
         self.time_slider.set_val(self.current_time)
         self.plot()
     
+    def on_click(self, event):
+        """Place the red dashed marker where the user left-clicks.
+
+        Only left clicks inside the main signal axes are considered. Clicking
+        sets a new marker position and makes the marker visible again (so a
+        click also restores a marker that was toggled off with 'v').
+        """
+        # Ignore clicks outside the signal plot or with no data coordinate
+        if event.inaxes != self.ax or event.xdata is None:
+            return
+        # Only react to left button (button == 1)
+        if event.button != 1:
+            return
+
+        self.marker_time = event.xdata
+        self.marker_visible = True
+        print(f"Marker placed at {self.marker_time:.3f} s")
+        self.plot()
+
     def on_slider_change(self, val):
         """Handle slider change"""
         self.current_time = val
